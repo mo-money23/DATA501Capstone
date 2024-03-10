@@ -1,0 +1,535 @@
+---
+title: "Untitled"
+author: "Nolan Moody (UCID 30044615)"
+date: "2024-03-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+::: {style="margin-bottom:50px;"}
+## Load Packages, Get Data
+
+```{r}
+install.packages("tidyverse") # Needed to pipe functions together
+library("tidyverse") 
+install.packages("mosaic")
+library(mosaic)
+install.packages("ggplot2")
+library(ggplot2)
+setwd("C:/Users/nolan/OneDrive/Desktop/DATA501 Project Files") 
+load("./w - nhanes_1988_2018.RData")
+```
+:::
+
+::: {style="margin-bottom:50px;"}
+### Clean Age Data
+
+```{r}
+NHANES_AGE <- demographics_clean %>%
+  select(SEQN, SEQN_new, SDDSRVYR, # Identifier Data
+         RIDAGEYR) # Recoded and cleaned age of all participants
+
+# Change column name for easier processing
+names(NHANES_AGE)[4] = "AGE"
+
+# Convert age to numeric
+NHANES_AGE$AGE <- as.numeric(NHANES_AGE$AGE)
+```
+:::
+
+::: {style="margin-bottom:50px;"}
+## Clean Gender Data
+
+```{r}
+NHANES_GENDER <- demographics_clean %>%
+  select(SEQN, SEQN_new, SDDSRVYR, # Identifier Data
+         RIAGENDR) 	 # Recoded and cleaned gender for all participants
+
+# Rename column for easier processing.
+names(NHANES_GENDER)[4] <- "GENDER"
+
+# Change categories. Male is originally measured as 1, female as 2. Change male to 0 and female to 1 to help with regression design.
+NHANES_GENDER$GENDER <- ifelse(NHANES_GENDER$GENDER == 1, 0, 1)
+
+# Change gender to categorical factor.
+NHANES_GENDER$GENDER <- factor(NHANES_GENDER$GENDER)
+```
+:::
+
+::: {style="margin-bottom:50px;"}
+## Clean BMI Data
+
+```{r}
+NHANES_BMI_2 <- response_clean %>%
+  select(SEQN, 
+         SEQN_new, 
+         SDDSRVYR,
+         BMXBMI, # Adult BMI
+         BMDBMIC) # Youth category	
+# Categories for youth BMI:
+# 1 = Underweight
+# 2 = Normal Weight
+# 3 = Overweight
+# 4 = Obese
+
+# Create an alternate measure of BMI that represents categories:
+NHANES_BMI_2$BMI_CAT <- 
+  ifelse(!is.na(NHANES_BMI_2$BMDBMIC), NHANES_BMI_2$BMDBMIC,
+     ifelse(is.na(NHANES_BMI_2$BMXBMI), NA, 
+            ifelse(NHANES_BMI_2$BMXBMI < 18.5, 1,
+                    ifelse(NHANES_BMI_2$BMXBMI < 25, 2,
+                           ifelse(NHANES_BMI_2$BMXBMI < 30, 3, 4)))))
+# Change column name for convenience:
+names(NHANES_BMI_2)[4] = "BMI"
+
+# Subset to keep only data of interest for the primary BMI df:
+NHANES_BMI <- NHANES_BMI_2 %>% 
+  select(SEQN, SEQN_new, SDDSRVYR, # Identifier variables
+         BMI) # BMI as a number
+# Ensure BMI is numeric
+NHANES_BMI$BMI <- as.numeric(NHANES_BMI$BMI)
+
+NHANES_BMI_alt <- NHANES_BMI_2 %>% 
+  select(SEQN, SEQN_new, SDDSRVYR, # Identifier variables
+         BMI_CAT) # BMI category
+
+```
+:::
+
+::: {style="margin-bottom:50px;"}
+## Clean eGFR Data {style="margin-bottom:50px;"}
+
+```{r}
+NHANES_eGFR  <- response_clean %>%
+  select(SEQN, 
+         SEQN_new, 
+         SDDSRVYR,
+         VNEGFR) # Measured eGFR
+
+# Rename variable for convenience
+names(NHANES_eGFR)[4] = "eGFR"
+
+# Ensure numerical measure
+NHANES_eGFR$eGFR <- as.numeric(NHANES_eGFR$eGFR)
+```
+:::
+
+::: {style="margin-bottom:50px;"}
+## **Other Demographic Variables of Interest** {style="margin-bottom:50px;"}
+
+INDFMIN2 Total family income (reported as a range value in dollars) 132610
+
+INDFMPIR Poverty income ratio (PIR) - a ratio of family income to poverty threshold 122704
+
+```{r}
+NHANES_INCOME <- demographics_clean %>%
+  select(SEQN, SEQN_new, SDDSRVYR, # Identifier Data
+         INDFMIN2, # Total Family Income
+         INDFMPIR) # Poverty ratio
+NHANES_INCOME$INDFMIN2 <- as.factor(NHANES_INCOME$INDFMIN2)
+names(NHANES_INCOME)[4] = "INCOME_CAT"
+names(NHANES_INCOME)[5] = "POVERTY_RATIO"
+# Important to note: These two variables are highly correlated at ~0.85
+```
+:::
+
+::: {style="margin-bottom:50px;"}
+## Other Response Variables
+
+```{r}
+### Correlative and Causative
+NHANES_RESPONSE_CORR <- response_clean %>%
+  select(SEQN, 
+         SEQN_new, 
+         SDDSRVYR,
+          BMXWT, #	Weight (kg)
+          BPXDI1, #	Diastolic: Blood pressure (first reading) mm Hg
+          BPXML1, #	MIL: maximum inflation levels (mm Hg)
+          BPXPLS, #	60 sec. pulse (30 sec. pulse * 2)
+          LBDBANO, #	Basophils number (1000 cells/uL)
+          LBDEONO, #	Eosinophils number (1000 cells/uL)
+          LBDFOT, #	Serum total folate (ng/mL)
+          LBDHDD, #	Serum HDL cholesterol (mg/dL)
+          LBDLYMNO, #	Lymphocyte number (Coulter) (1000 cells/uL)
+          LBDMONO, #	Monocyte number (1000 cells/uL)
+          LBDNENO, #	Segmented neutrophils number (1000 cell/uL)
+          LBDRFO, #	RBC folate (ng/mL)
+          LBDSALSI, #	Serum albumin:  SI (g/L)
+          LBDSBUSI, #	Serum Blood Urea Nitrogen: SI (mmol/L)
+          LBDSCHSI, #	Serum total cholesterol:  SI (mmol/L)
+          LBDSPHSI, #	Serum phosphorus: SI (mmol/L)
+          LBDSTBSI, #	Serum total bilirubin:  SI (umol/L)
+          LBDSTPSI, #	Serum total protein:  SI (g/L)
+          LBDSUASI, #	Serum uric acid:  SI (umol/L)
+          LBXBAPCT, #	Basophils percent (%)
+          LBXEOPCT, #	Eosinophils percent (%)
+          LBXGH, #	Glycohemoglobin (%)
+          LBXHA, #	Serum hepatitis A antibody (Anti-HAV)
+          LBXHBC, #	Serum hepatitis B core antibody
+          LBXHBS, #	Serum hepatitis B surface antibody (anti-HBs)
+          LBXHGB, #	Hemoglobin (g/dL)
+          LBXLYPCT, #	Lymphocyte percent (Coulter) (%)
+          LBXMC, #	Mean cell hemoglobin concentration (g/dL)
+          LBXMCHSI, #	Mean cell hemoglobin (pg)
+          LBXMCVSI, #	Mean cell volume (fL)
+          LBXMOPCT, #	Monocyte percent (%)
+          LBXMPSI, #	Mean platelet volume:  SI (fL)
+          LBXNEPCT, #	Segmented neutrophils percent (%)
+          LBXPLTSI, #	Platelet count: SI (1000 cells/uL)
+          LBXRBCSI, #	Red blood cell count: SI (million cells/uL)
+          LBXRDW, #	Red cell distribution width (%)
+          LBXSAPSI, #	Serum alkaline phosphatase:   SI (U/L)
+          LBXSASSI, #	Aspartate aminotransferase AST: SI (U/L)
+          LBXSATSI, #	Alanine aminotransferase ALT: SI (U/L)
+          LBXSBU, #	Serum blood urea nitrogen (mg/dL)
+          LBXSC3SI, #	Serum bicarbonate:  SI (mmol/L)
+          LBXSCR, #	Serum creatinine (mg/dL)
+          LBXSGL, #	Serum glucose (mg/dL)
+          LBXSLDSI, #	Serum lactate dehydrogenase: SI (U/L)
+          LBXSTB, #	Serum total bilirubin (mg/dL)
+          LBXSTP, #	Serum total protein (g/dL)
+          LBXSUA, #	Serum uric acid (mg/dL)
+          LBXWBCSI, #	White blood cell count: SI (1000 cells/uL)
+          VNAVEBPXSY, #	Systolic: Average blood pressure (mm Hg)
+          VNEGFR, #	Estimated Glomerular Filtration Rate (mL/min/1.73 m2)
+          VNEGFRADJ, #	Estimated Glomerular Filtration Rate race-adjusted (mL/min/1.73 m2)
+          VNHEMACRIT, #	Hematocrit (%)
+          VNTOTHDRATIO) #	Ratio of Total to HDL Cholesterol (-)
+
+### Causative Only
+NHANES_RESPONSE_CAUS <- response_clean %>%
+  select(SEQN, 
+         SEQN_new, 
+         SDDSRVYR,
+          BMXWT, #	Weight (kg)
+          LBDFOT, #	Serum total folate (ng/mL) - Nutrition
+          LBDHDD, #	Serum HDL cholesterol (mg/dL) - Metabolism and Lipid Markers, lifestyle
+          LBDRFO, #	RBC folate (ng/mL) - Nutrition
+          LBDSALSI, #	Serum albumin:  SI (g/L) - Nutrition, kidney or liver issues
+          LBDSPHSI, #	Serum phosphorus: SI (mmol/L) - Kidney damage indicator and nutrition or thyroid issues
+          LBDSUASI, #	Serum uric acid:  SI (umol/L) - Kidneyy/liver/thyroid problems, alcohol consumption, Obesity, Diabetes, cancers
+          LBXGH, #	Glycohemoglobin (%) - Diabetes
+          LBXSAPSI, #	Serum alkaline phosphatase:   SI (U/L) - kidney/liver disease, cancers, cirhhossis
+          LBXSASSI, #	Aspartate aminotransferase AST: SI (U/L) - Liver Function, alcohol abuse, cirrhosis,
+          LBXSATSI, #	Alanine aminotransferase ALT: SI (U/L)  - Liver Function
+          LBXSBU, #	Serum blood urea nitrogen (mg/dL) - Metabolism, kidney/liver function, nutrition
+          LBXSCR, #	Serum creatinine (mg/dL) - Renal Function
+          LBXSGL, #	Serum glucose (mg/dL) - Matabolism, kidney function, diet, physical activity, nutrition
+          LBXSLDSI, #	Serum lactate dehydrogenase: SI (U/L) - liver function, cancers
+          LBXSTB, #	Serum total bilirubin (mg/dL)  - Liver Function
+          LBXSUA, #	Serum uric acid (mg/dL) - Matabolism, kidney function, nutrition
+          VNTOTHDRATIO) #	Ratio of Total to HDL Cholesterol (-)
+
+
+
+```
+:::
+
+::: {style="margin-bottom:50px;"}
+Other Chemicals data
+
+```{r}
+NHANES_SMOKE <- chemicals_clean %>%
+  select(SEQN, 
+         SEQN_new, 
+         SDDSRVYR,
+         LBXCOT) #	Serum cotinine (ng/mL) - Recent nicotine exposure from tobacco smoke
+
+names(NHANES_SMOKE)[4] <- "COTININE"
+
+```
+:::
+
+::: {style="margin-bottom:50px;"}
+## Clean Race Data {style="margin-bottom:50px;"}
+
+```{r}
+NHANES_RACE <- demographics_clean %>%
+  select(SEQN, 
+         SEQN_new, 
+         SDDSRVYR,
+         RIDRETH1) # Recoded race category
+
+# Rename variable
+names(NHANES_RACE)[4] <- "RACE"
+
+# This code appears unnecessary
+NHANES_RACE <- NHANES_RACE %>%
+  select(SEQN, 
+         SEQN_new, 
+         SDDSRVYR,
+         RACE)
+
+# Change race to categorical factor
+NHANES_RACE$RACE <- factor(NHANES_RACE$RACE)
+```
+:::
+
+::: {style="margin-bottom:50px;"}
+## Clean Education Data
+
+```{r}
+NHANES_EDUCATION <- demographics_clean %>%
+  select(SEQN, 
+         SEQN_new, 
+         SDDSRVYR,
+         DMDEDUC, # (SP Interview Version) What is the highest grade or level of school {you have/SP has} completed or the highest degree {you have/s/he has} received?
+         DMDEDUC2,# Education level - Adults 20+
+         DMDEDUC3) # Education level - Children/Youth 6-19
+
+
+## Change the variables to ensure they are measured in the same scale
+NHANES_EDUCATION$DMDEDUC2 <- ifelse(NHANES_EDUCATION$DMDEDUC2 == 1 | NHANES_EDUCATION$DMDEDUC2 == 2, 
+                                    1,
+                                    ifelse(NHANES_EDUCATION$DMDEDUC2 ==  3, 2,
+                                           ifelse(NHANES_EDUCATION$DMDEDUC2 == 4 | NHANES_EDUCATION$DMDEDUC2 == 5,
+                                                  3,
+                                                  ifelse(NHANES_EDUCATION$DMDEDUC2 == 7,
+                                                         7,
+                                                         ifelse(NHANES_EDUCATION$DMDEDUC2 == 9,
+                                                                9,
+                                                                NA)))))
+
+NHANES_EDUCATION$DMDEDUC3 <- ifelse(NHANES_EDUCATION$DMDEDUC3 <= 12 | NHANES_EDUCATION$DMDEDUC3 == 55 | NHANES_EDUCATION$DMDEDUC3 == 66, 1,
+                                    ifelse(NHANES_EDUCATION$DMDEDUC3 == 13 | NHANES_EDUCATION$DMDEDUC3 == 14, 2,
+                                           ifelse(NHANES_EDUCATION$DMDEDUC3 == 15, 3,
+                                                  ifelse(NHANES_EDUCATION$DMDEDUC3 == 77, 7,
+                                                         ifelse(NHANES_EDUCATION$DMDEDUC3 == 99, 9, NA)))))
+
+
+NHANES_EDUCATION$EDUCATION <- ifelse(!is.na(NHANES_EDUCATION$DMDEDUC2),
+                                     NHANES_EDUCATION$DMDEDUC2,
+                                     ifelse(!is.na(NHANES_EDUCATION$DMDEDUC),
+                                            NHANES_EDUCATION$DMDEDUC, 
+                                            ifelse(!is.na(NHANES_EDUCATION$DMDEDUC3), NHANES_EDUCATION$DMDEDUC3, NA)))
+
+NHANES_EDUCATION <- NHANES_EDUCATION %>%
+  select(SEQN, 
+         SEQN_new, 
+         SDDSRVYR,
+         EDUCATION)
+NHANES_EDUCATION$EDUCATION <- factor(NHANES_EDUCATION$EDUCATION)
+```
+:::
+
+::: {style="margin-bottom:50px;"}
+## Clean PFAS Data
+
+```{r}
+NHANES_PFAS <- chemicals_clean %>%
+  select(
+    SEQN, 
+    SEQN_new, 
+    SDDSRVYR,
+    VNURXPFBA, 
+    LBXPFBS, 
+    VNURXPFBS, 
+    VNURXPFHA, 
+    LBXPFHS, 
+    VNURXPFHS,
+    VNURXGENX)
+
+# Get rid of any rows that are missing data for all PFAS
+NHANES_PFAS <- NHANES_PFAS %>%
+  filter(if_any(c(VNURXPFBA, 
+                  LBXPFBS, 
+                  VNURXPFBS, 
+                  VNURXPFHA, 
+                  LBXPFHS, 
+                  VNURXPFHS,
+                  VNURXGENX), 
+                ~ !is.na(.)))
+```
+:::
+
+::: {style="margin-bottom:50px;"}
+::: {style="margin-bottom:50px;"}
+## Clean Cancer Data
+
+```{r}
+NHANES_HEALTH <- questionnaire_clean %>%
+  select(SEQN, 
+         SEQN_new, 
+         SDDSRVYR, 
+         MCQ240M,	# Age when liver cancer was first diagnosed
+         MCQ240BB,#	Age when thyroid cancer was first diagnosed
+         MCQ240N,	# Age when lung cancer was first diagnosed
+         MCQ240J, #	Age when kidney cancer was first diagnosed
+         HAC3OS,  #	Where was cancer located when first told
+         MCQ230A, #	1st cancer - what kind was it?
+         MCQ230B, #	2nd cancer - what kind was it?
+         MCQ230C,	# 3rd cancer - what kind was it?
+         MCQ230D) #	More than 3 kinds of cancer - What kind of cancer was it?
+
+## LIVER CANCER CLASSIFICATION
+# Liver Cancer Class
+NHANES_HEALTH$LIVER_CANCER_CLASS <- ifelse(
+  (!is.na(NHANES_HEALTH$MCQ240M) & 
+     NHANES_HEALTH$MCQ240M > 0 & 
+     NHANES_HEALTH$MCQ240M < 100) |
+    (!is.na(NHANES_HEALTH$MCQ230A) & NHANES_HEALTH$MCQ230A == 22) |
+    (!is.na(NHANES_HEALTH$MCQ230B) & NHANES_HEALTH$MCQ230B == 22) |
+    (!is.na(NHANES_HEALTH$MCQ230C) & NHANES_HEALTH$MCQ230C == 22) |
+    (!is.na(NHANES_HEALTH$MCQ230D) & NHANES_HEALTH$MCQ230D == 22),
+  1,
+  0
+)
+
+# Thyroid Cancer Class
+NHANES_HEALTH$THYROID_CANCER_CLASS <- ifelse(
+  (!is.na(NHANES_HEALTH$MCQ240BB) & 
+     NHANES_HEALTH$MCQ240BB > 0 & 
+     NHANES_HEALTH$MCQ240BB < 100) |
+    (!is.na(NHANES_HEALTH$MCQ230A) & NHANES_HEALTH$MCQ230A == 37) |
+    (!is.na(NHANES_HEALTH$MCQ230B) & NHANES_HEALTH$MCQ230B == 37) |
+    (!is.na(NHANES_HEALTH$MCQ230C) & NHANES_HEALTH$MCQ230C == 37) |
+    (!is.na(NHANES_HEALTH$MCQ230D) & NHANES_HEALTH$MCQ230D == 37),
+  1,
+  0
+)
+
+# Lung Cancer Class
+NHANES_HEALTH$LUNG_CANCER_CLASS <- ifelse(
+  (!is.na(NHANES_HEALTH$MCQ240N) & 
+     NHANES_HEALTH$MCQ240N > 0 & 
+     NHANES_HEALTH$MCQ240N < 100) |
+    (!is.na(NHANES_HEALTH$MCQ230A) & NHANES_HEALTH$MCQ230A == 23) |
+    (!is.na(NHANES_HEALTH$MCQ230B) & NHANES_HEALTH$MCQ230B == 23) |
+    (!is.na(NHANES_HEALTH$MCQ230C) & NHANES_HEALTH$MCQ230C == 23) |
+    (!is.na(NHANES_HEALTH$MCQ230D) & NHANES_HEALTH$MCQ230D == 23),
+  1,
+  0
+)
+
+# Kidney Cancer Class
+NHANES_HEALTH$KIDNEY_CANCER_CLASS <- ifelse(
+  (!is.na(NHANES_HEALTH$MCQ240J) & 
+     NHANES_HEALTH$MCQ240J > 0 &
+     NHANES_HEALTH$MCQ240J < 100) |
+    (!is.na(NHANES_HEALTH$MCQ230A) & NHANES_HEALTH$MCQ230A == 19) |
+    (!is.na(NHANES_HEALTH$MCQ230B) & NHANES_HEALTH$MCQ230B == 19) |
+    (!is.na(NHANES_HEALTH$MCQ230C) & NHANES_HEALTH$MCQ230C == 19) |
+    (!is.na(NHANES_HEALTH$MCQ230D) & NHANES_HEALTH$MCQ230D == 19),
+  1,
+  0
+)
+
+# Convert cancer classification to a factor:
+NHANES_HEALTH$LIVER_CANCER_CLASS <- factor(NHANES_HEALTH$LIVER_CANCER_CLASS)
+NHANES_HEALTH$THYROID_CANCER_CLASS <- factor(NHANES_HEALTH$THYROID_CANCER_CLASS)
+NHANES_HEALTH$LUNG_CANCER_CLASS <- factor(NHANES_HEALTH$LUNG_CANCER_CLASS)
+NHANES_HEALTH$KIDNEY_CANCER_CLASS <- factor(NHANES_HEALTH$KIDNEY_CANCER_CLASS)
+
+# View total cancer diagnosis:
+sum(NHANES_HEALTH$LIVER_CANCER_CLASS == 1)
+sum(NHANES_HEALTH$THYROID_CANCER_CLASS == 1)
+sum(NHANES_HEALTH$LUNG_CANCER_CLASS == 1)
+sum(NHANES_HEALTH$KIDNEY_CANCER_CLASS == 1)
+
+# Subset the data to include only cancer classification:
+NHANES_HEALTH <- NHANES_HEALTH %>%
+  select(SEQN, 
+         SEQN_new, 
+         SDDSRVYR,
+         LIVER_CANCER_CLASS,
+         THYROID_CANCER_CLASS,
+         LUNG_CANCER_CLASS,
+         KIDNEY_CANCER_CLASS)
+```
+:::
+:::
+
+::: {style="margin-bottom:50px;"}
+## Join the Data {style="margin-bottom:50px;"}
+
+```{r}
+
+nhanes_merged <- left_join(NHANES_PFAS, 
+                           NHANES_HEALTH, 
+                           by = c("SEQN",
+                                  "SEQN_new", 
+                                  "SDDSRVYR")) %>%
+
+  left_join(., 
+             NHANES_SMOKE, 
+             by = c("SEQN",
+                    "SEQN_new", 
+                    "SDDSRVYR")) %>%
+  left_join(., 
+            NHANES_AGE, 
+            by = c("SEQN",
+                   "SEQN_new", 
+                   "SDDSRVYR")) %>%
+  left_join(., 
+            NHANES_GENDER, 
+            by = c("SEQN",
+                   "SEQN_new", 
+                   "SDDSRVYR")) %>%
+  left_join(.,
+            NHANES_BMI,
+            by = c("SEQN",
+                   "SEQN_new", 
+                   "SDDSRVYR")) %>%
+  left_join(.,
+            NHANES_EDUCATION,
+            by = c("SEQN",
+                   "SEQN_new", 
+                   "SDDSRVYR")) %>%
+  left_join(.,
+            NHANES_eGFR,
+            by = c("SEQN",
+                   "SEQN_new", 
+                   "SDDSRVYR")) %>%
+  left_join(.,
+            NHANES_RACE,
+            by = c("SEQN",
+                   "SEQN_new", 
+                   "SDDSRVYR")) %>%
+  left_join(.,
+            NHANES_RESPONSE_CAUS,
+            by = c("SEQN",
+                   "SEQN_new", 
+                   "SDDSRVYR"))%>%
+left_join(.,
+            NHANES_INCOME,
+            by = c("SEQN",
+                   "SEQN_new", 
+                   "SDDSRVYR"))
+```
+:::
+
+::: {style="margin-bottom:50px;"}
+## Compile PFAS Separately
+
+```{r}
+compiled.PFHxS.SERUM <- nhanes_merged %>%
+  select(-c(VNURXPFBA, 
+            VNURXPFHS,
+            LBXPFBS, 
+            VNURXPFBS, 
+            VNURXPFHA,
+            VNURXGENX)) 
+compiled.PFHxS.SERUM <- na.omit(compiled.PFHxS.SERUM)
+
+# Remove identifiers 
+compiled.PFHxS.SERUM <- compiled.PFHxS.SERUM %>%
+  select(-c(SEQN,SEQN_new, SDDSRVYR))
+
+# Rename response column and change to numeric
+names(compiled.PFHxS.SERUM)[1] = "Serum_PFHxS"
+compiled.PFHxS.SERUM$Serum_PFHxS <- as.numeric(compiled.PFHxS.SERUM$Serum_PFHxS)
+
+```
+:::
+
+::: {style="margin-bottom:50px;"}
+## Export the file to your working directory
+
+```{r}
+
+write.csv(compiled.PFHxS.SERUM, "Compiled PFHxS Serum.csv")
+```
+:::
